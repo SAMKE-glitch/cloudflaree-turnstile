@@ -66,10 +66,11 @@ const simulateMouseMovement = async (target, targetSelector) => {
     console.log('Password entered.');
     await randomDelay(60, 110);
 
-    // Click the submit button and wait for any potential navigation
-    // Note: If the login is handled via AJAX, the page may not navigate.
+    // Click the submit button and wait for navigation or page update
     await Promise.all([
-      page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => {}), // catch timeout if no navigation occurs
+      page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }).catch(() => {
+        console.warn('No navigation occurred after clicking submit; login might be handled via AJAX.');
+      }),
       (async () => {
         await simulateMouseMovement(page, 'button[type="submit"]');
         await randomDelay(300, 700);
@@ -78,31 +79,71 @@ const simulateMouseMovement = async (target, targetSelector) => {
       })()
     ]);
 
-    // Optionally, wait a bit more for the page to fully render post-login
-    await randomDelay(2000, 3000);
+    // Debug: take a screenshot immediately after login attempt
+    await page.screenshot({ path: 'after-login.png' });
+    console.log('Screenshot after login saved as "after-login.png".');
 
-    // Check the current URL
-    const currentUrl = page.url();
-    console.log('Navigated to URL:', currentUrl);
+    // Instead of checking URL, wait for the search input on the home page to confirm login
+    try {
+      await page.waitForSelector('input#van-field-19414382-input', { timeout: 30000 });
+      console.log('Login verified by presence of search input on the home page.');
+    } catch (e) {
+      console.error('Search input not found – login might have failed.');
+    }
 
-    if (currentUrl === 'https://www.kilimall.co.ke/') {
-      console.log('Login verified by URL redirection. Successful login.');
-    } else {
-      console.warn('URL did not change to the expected home page. It remains:', currentUrl);
-      // As a backup, check for the email label
-      try {
-        await page.waitForSelector('span.label[title="sammythemwa@gmail.com"]', { timeout: 15000 });
-        console.log('Login verified by detecting the email label on the page.');
-      } catch (labelError) {
-        console.error('Neither URL redirection nor email label detection confirmed login.');
+    // =========================
+    // Begin purchase flow: Buying a laptop
+    // =========================
+
+    // Directly use the search input on the home page
+    await simulateMouseMovement(page, 'input#van-field-19414382-input');
+    await page.fill('input#van-field-19414382-input', 'lenovo laptop 20000');
+    console.log('Filled search input with "lenovo laptop 20000".');
+    await randomDelay(1000, 1500);
+
+    // Click the search button within the search container
+    await simulateMouseMovement(page, 'div#pc__search-input .search-button');
+    await page.click('div#pc__search-input .search-button');
+    console.log('Search button clicked.');
+    await randomDelay(2000, 2500);
+
+    // Wait for the search results to load (assuming product prices indicate results)
+    await page.waitForSelector('div.product-price', { timeout: 30000 });
+    console.log('Search results loaded.');
+
+    // Retrieve all product-price elements and log their text for debugging
+    const priceElements = await page.$$('div.product-price');
+    console.log(`Found ${priceElements.length} product-price elements.`);
+    const eligibleProducts = [];
+    for (const [index, element] of priceElements.entries()) {
+      const text = await element.textContent();
+      console.log(`Product ${index}: ${text}`);
+      if (text) {
+        // Remove "KSh", spaces, and commas to parse the numeric value
+        const priceNum = Number(text.replace(/KSh|\s|,/g, ''));
+        if (priceNum >= 15000 && priceNum <= 20000) {
+          eligibleProducts.push(element);
+        }
       }
     }
 
-    // Optionally, capture a screenshot for further validation if necessary
-    await page.screenshot({ path: 'post-login.png' });
+    if (eligibleProducts.length === 0) {
+      console.error('No products found in the price range of KSh 15,000 to KSh 20,000.');
+    } else {
+      // Select one product randomly from the eligible products
+      const randomIndex = Math.floor(Math.random() * eligibleProducts.length);
+      const chosenProduct = eligibleProducts[randomIndex];
+      // Click the chosen product
+      await simulateMouseMovement(page, 'div.product-price');
+      await chosenProduct.click();
+      console.log('Selected a product with a price in the desired range.');
+    }
+
+    // Optionally, take a screenshot after selecting the product
+    await page.screenshot({ path: 'product-selected.png' });
 
   } catch (error) {
-    console.error('Error during login process:', error);
+    console.error('Error during the process:', error);
   } finally {
     await browser.close();
     console.log('Browser session closed.');
